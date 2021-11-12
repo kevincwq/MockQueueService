@@ -7,19 +7,13 @@ using System.Text.Json;
 
 namespace MockQueueService
 {
-    public class MockQueueService<T> : IQueueService<T>, IDisposable where T : IQueueItem
+    public class MockQueueService<T> : IQueueService<T>, ITestQueue<T>, IDisposable where T : IQueueItem
     {
         private readonly BlockingCollection<T> queue = new();
 
         private readonly ConcurrentDictionary<string, (T, CancellationTokenSource)> hiddenItems = new();
 
         private readonly TimeSpan timeSpan;
-
-        // for testing purpose
-        internal IEnumerable<T> QueuedItems => queue.ToArray();
-
-        // for testing purpose
-        internal IEnumerable<T> HiddenItems => hiddenItems.Select(x => x.Value.Item1).ToArray();
 
         public MockQueueService(TimeSpan mockDelay)
         {
@@ -31,11 +25,40 @@ namespace MockQueueService
 
         }
 
+        public int QueuedCount => queue.Count;
+
+        public int HiddenCount => hiddenItems.Count;
+
+        public Action<string> OnMethodExecuting { get; set; }
+
+        public IEnumerable<T> QueuedItems => queue.ToArray();
+
+        public IEnumerable<T> HiddenItems => hiddenItems.Select(x => x.Value.Item1).ToArray();
+
+        public async Task WhenEmptied()
+        {
+            while (true)
+            {
+                if (QueuedCount == 0 && HiddenCount == 0)
+                {
+                    await Task.Delay(1);
+                    // a chance the item is been moving between queue and hidden list.
+                    if (QueuedCount == 0 && HiddenCount == 0)
+                    {
+                        break;
+                    }
+                }
+                await Task.Delay(2);
+            }
+        }
+
         public async Task ChangeVisibilityAsync(string receiptHandle, TimeSpan visibility)
         {
             await Task.Delay(timeSpan).ContinueWith(t =>
             {
-                if (TryRemoveFromHidden(receiptHandle, out T? workItem))
+                OnMethodExecuting?.Invoke(nameof(ChangeVisibilityAsync));
+
+                if (TryRemoveFromHidden(receiptHandle, out T workItem))
                     AddToHidden(workItem!, visibilityTimeSpan: visibility);
             }).ConfigureAwait(false);
         }
@@ -44,6 +67,8 @@ namespace MockQueueService
         {
             await Task.Delay(timeSpan).ContinueWith(t =>
             {
+                OnMethodExecuting?.Invoke(nameof(DeleteAsync));
+
                 TryRemoveFromHidden(receiptHandle, out _);
             }).ConfigureAwait(false);
         }
@@ -52,6 +77,8 @@ namespace MockQueueService
         {
             await Task.Delay(timeSpan).ContinueWith(t =>
             {
+                OnMethodExecuting?.Invoke(nameof(AddAsync));
+
                 queue.Add(Clone(workItem));
             }).ConfigureAwait(false);
         }
@@ -60,7 +87,9 @@ namespace MockQueueService
         {
             return await Task.Delay(timeSpan, cancellationToken).ContinueWith(t =>
              {
-                 if (queue.TryTake(out T? item, (int)longPollDuration.TotalMilliseconds, cancellationToken))
+                 OnMethodExecuting?.Invoke(nameof(ReadAsync));
+
+                 if (queue.TryTake(out T item, (int)longPollDuration.TotalMilliseconds, cancellationToken))
                  {
                      item.ReceiptHandle = Guid.NewGuid().ToString();
                      AddToHidden(item, visibility);
@@ -89,7 +118,7 @@ namespace MockQueueService
             hiddenItems.TryAdd(receiptHandle, (item, cts));
         }
 
-        private bool TryRemoveFromHidden(string receiptHandle, out T? workItem)
+        private bool TryRemoveFromHidden(string receiptHandle, out T workItem)
         {
             workItem = default;
             if (hiddenItems.Remove(receiptHandle, out (T, CancellationTokenSource) item))
@@ -118,7 +147,7 @@ namespace MockQueueService
             queue.Dispose();
         }
 
-        private T Clone(T item)
+        private static T Clone(T item)
         {
             if (item == null)
             {
