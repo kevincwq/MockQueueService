@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace MockQueueService
+﻿namespace MockQueueService
 {
     public interface ITestQueue<T>
     {
@@ -18,6 +12,6 @@ namespace MockQueueService
 
         Action<string> OnMethodExecuting { get; set; }
 
-        Task WhenEmptied();
+        Task WhenEmptied(bool includeHiddenItems = true);
     }
 }

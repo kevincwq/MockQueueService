@@ -1,5 +1,4 @@
 ﻿using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -35,15 +34,15 @@ namespace MockQueueService
 
         public IEnumerable<T> HiddenItems => hiddenItems.Select(x => x.Value.Item1).ToArray();
 
-        public async Task WhenEmptied()
+        public async Task WhenEmptied(bool includeHiddenItems = true)
         {
             while (true)
             {
-                if (QueuedCount == 0 && HiddenCount == 0)
+                if (QueuedCount == 0 && (!includeHiddenItems || HiddenCount == 0))
                 {
                     await Task.Delay(1);
                     // a chance the item is been moving between queue and hidden list.
-                    if (QueuedCount == 0 && HiddenCount == 0)
+                    if (QueuedCount == 0 && (!includeHiddenItems || HiddenCount == 0))
                     {
                         break;
                     }
